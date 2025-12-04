@@ -1,81 +1,273 @@
-# Deep Seek Crawler
+# Automated News Web Scraper
 
-This project is a web crawler built with Python that extracts venue data (wedding reception venues) from a website using asynchronous programming with Crawl4AI. It utilizes a language model-based extraction strategy and saves the collected data to a CSV file.
+A production-ready web scraping application that automatically extracts news articles from websites and stores them in Azure Blob Storage for analysis in Microsoft Fabric.
 
 ## Features
 
-- Asynchronous web crawling using [Crawl4AI](https://pypi.org/project/Crawl4AI/)
-- Data extraction powered by a language model (LLM)
-- CSV export of extracted venue information
-- Modular and easy-to-follow code structure ideal for beginners
+- **Asynchronous Web Scraping**: Uses crawl4ai for efficient, paginated content extraction
+- **AI-Powered Extraction**: Leverages Google Gemini AI to intelligently parse and structure news data
+- **Cloud Storage Integration**: Automatically saves results to Azure Blob Storage
+- **Duplicate Detection**: Prevents re-scraping of already collected articles
+- **Dockerized Deployment**: Runs in Azure Container Instances for serverless execution
+- **Automated Scheduling**: Daily execution via Azure Logic Apps
+- **Fabric Integration**: Seamlessly imports data into Microsoft Fabric Lakehouse
+
+## Prerequisites
+
+- Python 3.12+
+- Docker Desktop
+- Azure Subscription
+- Google Gemini API Key
+- Microsoft Fabric workspace (for data analysis)
+
+## Architecture
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  Azure Logic    │────▶│  Azure Container │────▶│  Azure Blob     │
+│  App (9:00 AM)  │     │  Instance        │     │  Storage        │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+                              │                           │
+                              │ Scrapes News              │
+                              ▼                           ▼
+                        ┌──────────────┐          ┌─────────────────┐
+                        │  Target      │          │  Fabric Pipeline│
+                        │  Website     │          │  (9:30 AM)      │
+                        └──────────────┘          └─────────────────┘
+                                                          │
+                                                          ▼
+                                                   ┌─────────────────┐
+                                                   │  Fabric         │
+                                                   │  Lakehouse      │
+                                                   └─────────────────┘
+```
 
 ## Project Structure
+
 ```
-.
-├── main.py # Main entry point for the crawler
-├── config.py # Contains configuration constants (Base URL, CSS selectors, etc.)
-├── models
-│ └── venue.py # Defines the Venue data model using Pydantic
-├── utils
-│ ├── init.py # (Empty) Package marker for utils
-│ ├── data_utils.py # Utility functions for processing and saving data
-│ └── scraper_utils.py # Utility functions for configuring and running the crawler
-├── requirements.txt # Python package dependencies
-├── .gitignore # Git ignore file (e.g., excludes .env and CSV files)
-└── README.MD # This file
+paginated_ai_web_crawler/
+├── main.py                 # Main application entry point
+├── config.py              # Configuration settings (URLs, selectors)
+├── pyproject.toml         # Python dependencies
+├── Dockerfile             # Container configuration
+├── .dockerignore          # Docker build exclusions
+├── env-vars.yaml          # Environment variables template
+├── models/
+│   └── mcnews.py         # Pydantic data models
+└── utils/
+    ├── data_utils.py     # CSV generation and Azure Storage
+    └── scraper_utils.py  # Web scraping logic
 ```
 
 ## Installation
 
-1. **Create and Activate a Conda Environment**
+### Local Development
 
+1. **Clone the repository**
    ```bash
-   conda create -n deep-seek-crawler python=3.12 -y
-   conda activate deep-seek-crawler
+   git clone <your-repo-url>
+   cd paginated_ai_web_crawler
    ```
 
-2. **Install Dependencies**
-
+2. **Create virtual environment**
    ```bash
-   pip install -r requirements.txt
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. **Set Up Your Environment Variables**
+3. **Install dependencies**
+   ```bash
+   pip install -e .
+   playwright install chromium
+   ```
 
-   Create a `.env` file in the root directory with content similar to:
-
+4. **Configure environment variables**
+   
+   Create a `.env` file:
    ```env
-   GROQ_API_KEY=your_groq_api_key_here
+   GEMINI_API_KEY=your_gemini_api_key
+   AZURE_STORAGE_CONNECTION_STRING=your_connection_string
+   AZURE_STORAGE_CONTAINER=news-data
    ```
 
-   *(Note: The `.env` file is in your .gitignore, so it won’t be pushed to version control.)*
+5. **Run locally**
+   ```bash
+   python main.py
+   ```
 
-## Usage
+## Docker Deployment
 
-To start the crawler, run:
+### Build and Test Locally
 
 ```bash
-python main.py
+docker build -t news-scraper:latest .
+
+docker run --env-file .env news-scraper:latest
 ```
 
-The script will crawl the specified website, extract data page by page, and save the complete venues to a `complete_venues.csv` file in the project directory. Additionally, usage statistics for the LLM strategy will be displayed after crawling.
+### Deploy to Azure
+
+1. **Create Azure Container Registry**
+   ```bash
+   az acr create \
+     --resource-group Fabric \
+     --name webnewsscraper \
+     --sku Basic \
+     --location centralindia
+   ```
+
+2. **Build and push image**
+   ```bash
+   az acr login --name webnewsscraper
+   
+   docker build -t webnewsscraper.azurecr.io/news-scraper:latest .
+   docker push webnewsscraper.azurecr.io/news-scraper:latest
+   ```
+
+3. **Create Azure Storage Account**
+   ```bash
+   az storage account create \
+     --name newsdata \
+     --resource-group Fabric \
+     --location centralindia \
+     --sku Standard_LRS
+   
+   az storage container create \
+     --name news-data \
+     --account-name newsdata \
+     --auth-mode login
+   ```
+
+4. **Test container deployment**
+   ```bash
+   az container create \
+     --resource-group Fabric \
+     --name news-scraper-test \
+     --image webnewsscraper.azurecr.io/news-scraper:latest \
+     --registry-login-server webnewsscraper.azurecr.io \
+     --registry-username webnewsscraper \
+     --registry-password "<your-password>" \
+     --cpu 1 \
+     --memory 2 \
+     --restart-policy Never \
+     --location centralindia \
+     --os-type Linux \
+     --environment-variables @env-vars.yaml
+   ```
+
+## Automated Scheduling
+
+### Azure Logic App Setup
+
+1. **Create Logic App** in Azure Portal
+2. **Add Recurrence Trigger**:
+   - Frequency: Daily
+   - Time: 9:00 AM IST
+3. **Add Container Instance Action**:
+   - Action: "Create or update a container group"
+   - Configure with your ACR image and environment variables
+4. **Save and enable** the Logic App
+
+The scraper will now run automatically every day at 9:00 AM.
+
+## Microsoft Fabric Integration
+
+### Fabric Pipeline Setup
+
+1. **Create Data Pipeline** in Fabric workspace
+2. **Add Copy Data Activity**:
+   - **Source**: Azure Blob Storage
+     - Connection: newsdata storage account
+     - Container: news-data
+     - File: latest_news.csv
+   - **Destination**: Lakehouse
+     - Root folder: Files
+     - Path: news/
+3. **Schedule Pipeline**: Daily at 9:30 AM IST
+4. **Run and verify** data flows into Lakehouse
 
 ## Configuration
 
-The `config.py` file contains key constants used throughout the project:
+### Scraping Configuration (`config.py`)
 
-- **BASE_URL**: The URL of the website from which to extract venue data.
-- **CSS_SELECTOR**: CSS selector string used to target venue content.
-- **REQUIRED_KEYS**: List of required fields to consider a venue complete.
+```python
+# Target website URL
+BASE_URL = "https://www.moneycontrol.com/city"
 
-You can modify these values as needed.
+# CSS selector for content extraction
+CSS_SELECTOR = "[class='topictabpane']"
 
-## Additional Notes
+# Required fields for each news article
+REQUIRED_KEYS = [
+    "Title",
+    "description",
+    "url",    
+    "publishtime",
+    "provider"
+]
+```
 
-- **Logging:** The project currently uses print statements for status messages. For production or further development, consider integrating Python’s built-in `logging` module.
-- **Improvements:** The code is structured in multiple modules to maintain separation of concerns, making it easier for beginners to follow and extend the functionality.
-- **Dependencies:** Ensure that the package versions specified in `requirements.txt` are installed to avoid compatibility issues.
+### Data Model (`models/mcnews.py`)
 
-## License
+```python
+class News(BaseModel):
+    Title: str
+    description: str
+    publishtime: str
+    url: str
+    provider: str
+```
 
-Include license information if applicable.
+## Troubleshooting
+
+### Common Issues
+
+**Issue**: `BrowserType.launch: Executable doesn't exist`
+- **Solution**: Install Playwright browsers: `playwright install chromium`
+
+**Issue**: `Bad data detected at line X`
+- **Solution**: The CSV cleaning logic handles special characters. Ensure you're using the updated `data_utils.py`
+
+**Issue**: Docker build fails
+- **Solution**: Ensure Docker Desktop is running and you have sufficient disk space
+
+**Issue**: Container exits with code 1
+- **Solution**: Check logs: `az container logs --resource-group Fabric --name <container-name>`
+
+**Issue**: Azure region not allowed
+- **Solution**: Use an allowed region like `centralindia` instead of `eastus`
+
+## Monitoring
+
+### View Container Logs
+
+```bash
+az container logs \
+  --resource-group Fabric \
+  --name news-scraper-test \
+  --follow
+```
+
+### Check Blob Storage
+
+```bash
+az storage blob list \
+  --container-name news-data \
+  --account-name newsdata \
+  --auth-mode login \
+  --output table
+```
+
+
+
+
+## 🔗 Resources
+
+- [crawl4ai Documentation](https://docs.crawl4ai.com/)
+- [Azure Container Instances](https://docs.microsoft.com/azure/container-instances/)
+- [Microsoft Fabric](https://learn.microsoft.com/fabric/)
+- [Playwright Documentation](https://playwright.dev/python/)
+
+---
+
+**Last Updated**: December 2024
