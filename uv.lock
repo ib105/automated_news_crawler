@@ -1240,6 +1240,7 @@ dependencies = [
     { name = "crawl4ai" },
     { name = "pydantic" },
     { name = "python-dotenv" },
+    { name = "requests" },
 ]
 
 [package.metadata]
@@ -1249,6 +1250,7 @@ requires-dist = [
     { name = "crawl4ai", specifier = "==0.4.247" },
     { name = "pydantic", specifier = "==2.10.6" },
     { name = "python-dotenv", specifier = "==1.0.1" },
+    { name = "requests", specifier = ">=2.32.5" },
 ]
 
 [[package]]

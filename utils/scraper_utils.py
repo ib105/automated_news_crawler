@@ -10,7 +10,8 @@ from crawl4ai import (
     LLMExtractionStrategy,
 )
 
-from models.mcnews import News
+from models.mcnews import News, HinduNews, ExpressNews, NewsdataNews
+
 from utils.data_utils import is_complete_news, is_duplicate_news
 
 
@@ -52,6 +53,34 @@ def get_llm_strategynew() -> LLMExtractionStrategy:
         verbose=True,
     )
 
+def get_llm_strategy_for_source(model_name: str, api_key: str) -> LLMExtractionStrategy:
+    """Get LLM strategy based on source with specific API key"""
+    
+    model_map = {
+        'mcnews': News,
+        'thehindu': HinduNews,
+        'indianexpress': ExpressNews,
+        'newsdata': NewsdataNews
+    }
+    
+    schema_class = model_map.get(model_name, News)
+    
+    return LLMExtractionStrategy(
+        provider="gemini/gemini-2.5-flash",
+        api_token=api_key,
+        schema=schema_class.model_json_schema(),
+        extraction_type="schema",
+        instruction=(
+            "Extract news articles from the HTML content. "
+            "For each article, extract the following fields: "
+            "title (article headline), description (brief summary), "
+            "url (article link), publishtime (publication date/time), "
+            "provider (source/author). "
+            "Return a valid JSON array of objects with these exact field names in lowercase."
+        ),
+        input_format="html",
+        verbose=True,
+    )
 
 async def check_no_results(
     crawler: AsyncWebCrawler,
